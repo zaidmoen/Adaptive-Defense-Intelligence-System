@@ -3,6 +3,8 @@
 
 A research-oriented RTS defense simulator with a Python simulation core and a React + PixiJS replay laboratory. **Exploratory prototype, not a validated new algorithm.**
 
+![AEGIS replay laboratory](docs/preview.png)
+
 ## Version 0.1
 - Seeded terrain: plains, forest, ridges and impassable barriers.
 - Four-neighbor A* with unit-class movement costs and barrier-based line of sight.
