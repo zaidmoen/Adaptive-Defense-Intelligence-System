@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Application, Graphics, Container, Text } from "pixi.js";
+import { Application, Assets, Graphics, Container, Sprite, Text, Texture } from "pixi.js";
 import type { Replay, Frame } from "./types";
 
 type Props = {
@@ -35,25 +35,58 @@ export default function Battlefield(props: Props) {
       app.canvas.style.width = "100%";
       app.canvas.style.height = "100%";
       app.canvas.style.objectFit = "contain";
+      const assetRoot = new URL("./assets/kenney-tiny-battle/", window.location.href).href;
+      const assetFiles = [
+        "grass", "grass-detail", "headquarters", "forest-tree",
+        "barrier", "heavy-ally", "infantry-ally", "scout-ally",
+        "heavy-enemy", "infantry-enemy", "scout-enemy", "forest-detail",
+      ];
+      const textures: Record<string, Texture> = {};
+      await Promise.all(assetFiles.map(async (name) => {
+        textures[name] = await Assets.load<Texture>(`${assetRoot}${name}.png`);
+      }));
+      if (disposed) {
+        app.destroy(true, { children: true });
+        return;
+      }
+
+      const ground = new Container();
       const land = new Graphics();
-      app.stage.addChild(land);
-      const colors = [0x18302d, 0x25463b, 0x4c5140, 0x101d22];
+      const scenery = new Container();
+      app.stage.addChild(ground, land, scenery);
       props.replay.grid.forEach((row, y) =>
         row.forEach((t, x) => {
-          land.rect(x * 20, y * 20, 20, 20).fill(colors[t]);
-          if (t === 1) {
-            land
-              .moveTo(x * 20 + 5, y * 20 + 15)
-              .lineTo(x * 20 + 10, y * 20 + 4)
-              .lineTo(x * 20 + 15, y * 20 + 15)
-              .fill(0x365848);
+          const tile = new Sprite(textures[t === 3 ? "barrier" : (x * 13 + y * 7) % 5 === 0 ? "grass-detail" : "grass"]);
+          tile.position.set(x * 20, y * 20);
+          tile.width = 20;
+          tile.height = 20;
+          ground.addChild(tile);
+          if (t === 3) {
+            land.rect(x * 20, y * 20, 20, 20).fill({ color: 0x253333, alpha: 0.74 });
+            land.rect(x * 20 + 1, y * 20 + 1, 18, 18)
+              .stroke({ color: 0xd0b477, alpha: 0.58, width: 1 });
           }
-          if (t === 2)
+          if (t === 1) {
+            if ((x * 31 + y * 17) % 3 !== 0) {
+              const tree = new Sprite(textures[(x + y) % 2 ? "forest-tree" : "forest-detail"]);
+              tree.anchor.set(0.5, 0.68);
+              tree.position.set(x * 20 + 10, y * 20 + 10);
+              tree.scale.set(1.14);
+              tree.alpha = 0.86;
+              scenery.addChild(tree);
+            }
+          }
+          if (t === 2) {
             land
-              .moveTo(x * 20 + 3, y * 20 + 14)
-              .lineTo(x * 20 + 10, y * 20 + 6)
-              .lineTo(x * 20 + 17, y * 20 + 14)
-              .stroke({ color: 0x73715a, width: 1 });
+              .moveTo(x * 20 + 1, y * 20 + 15)
+              .lineTo(x * 20 + 5, y * 20 + 7)
+              .lineTo(x * 20 + 9, y * 20 + 13)
+              .lineTo(x * 20 + 14, y * 20 + 4)
+              .lineTo(x * 20 + 19, y * 20 + 15)
+              .closePath()
+              .fill({ color: 0x777866, alpha: 0.58 })
+              .stroke({ color: 0xc2b98d, alpha: 0.42, width: 1 });
+          }
         }),
       );
       for (let x = 0; x <= 1200; x += 100)
@@ -66,26 +99,41 @@ export default function Battlefield(props: Props) {
           .moveTo(0, y)
           .lineTo(1200, y)
           .stroke({ color: 0x75978b, alpha: 0.1, width: 1 });
-      const base = new Graphics()
-        .roundRect(
-          props.replay.base[0] * 20 - 24,
-          props.replay.base[1] * 20 - 25,
-          48,
-          50,
-          5,
-        )
-        .fill(0x2c7969)
-        .stroke({ color: 0x89f9d3, width: 2 });
+      const baseX = props.replay.base[0] * 20;
+      const baseY = props.replay.base[1] * 20;
+      const base = new Graphics().roundRect(baseX - 23, baseY - 22, 46, 44, 7)
+        .fill({ color: 0x16352c, alpha: 0.9 })
+        .stroke({ color: 0x9bf0c9, width: 2 });
       app.stage.addChild(base);
+      const hq = new Sprite(textures.headquarters);
+      hq.anchor.set(0.5);
+      hq.position.set(baseX, baseY);
+      hq.scale.set(1.8);
+      app.stage.addChild(hq);
       const label = new Text({
         text: "AEGIS / HQ",
         style: { fill: 0xb5e8d7, fontSize: 13, fontFamily: "monospace" },
       });
       label.position.set(
-        props.replay.base[0] * 20 - 38,
-        props.replay.base[1] * 20 + 34,
+        baseX - 38,
+        baseY + 25,
       );
       app.stage.addChild(label);
+      const soldiers = new Container();
+      app.stage.addChild(soldiers);
+      const unitSprites = new Map<string, Map<number, Sprite>>();
+      const iconName = (side: string, kind: string) => `${kind}-${side === "ally" ? "ally" : "enemy"}`;
+      for (const squad of props.replay.frames[0].squads) {
+        const members = new Map<number, Sprite>();
+        for (const id of squad.alive) {
+          const sprite = new Sprite(textures[iconName(squad.side, squad.kind)]);
+          sprite.anchor.set(0.5);
+          sprite.scale.set(0.58);
+          soldiers.addChild(sprite);
+          members.set(id, sprite);
+        }
+        unitSprites.set(squad.id, members);
+      }
       const dynamic = new Graphics();
       app.stage.addChild(dynamic);
       const labels = new Container();
@@ -122,6 +170,20 @@ export default function Battlefield(props: Props) {
           current.current;
         dynamic.clear();
         for (const s of frame.squads) {
+          const members = unitSprites.get(s.id);
+          if (members) {
+            for (const [id, sprite] of members) sprite.visible = false;
+            s.alive.forEach((id) => {
+              const sprite = members.get(id);
+              if (!sprite) return;
+              const slot = id % 25;
+              sprite.position.set(
+                s.x * 20 + ((slot % 5) - 2) * 6,
+                s.y * 20 + (Math.floor(slot / 5) - 2) * 6,
+              );
+              sprite.visible = true;
+            });
+          }
           const tag = tags.get(s.id)!;
           tag.visible = !!s.alive.length;
           tag.position.set(s.x * 20 - 15, s.y * 20 - 27);
@@ -150,20 +212,6 @@ export default function Battlefield(props: Props) {
             for (const p of s.path) dynamic.lineTo(p[0] * 20, p[1] * 20);
             dynamic.stroke({ color: c, alpha: 0.45, width: 1.5 });
           }
-          s.alive.forEach((id) => {
-            const slot = id % 25;
-            const x = s.x * 20 + ((slot % 5) - 2) * 6,
-              y = s.y * 20 + (Math.floor(slot / 5) - 2) * 6;
-            if (s.kind === "heavy")
-              dynamic.rect(x - 2.5, y - 2.5, 5, 5).fill(c);
-            else if (s.kind === "scout")
-              dynamic
-                .moveTo(x, y - 3)
-                .lineTo(x + 3, y + 3)
-                .lineTo(x - 3, y + 3)
-                .fill(c);
-            else dynamic.circle(x, y, 2.4).fill(c);
-          });
         }
         for (const e of replay.events.filter(
           (e) => e.tick <= frame.tick && e.tick >= frame.tick - 1,
